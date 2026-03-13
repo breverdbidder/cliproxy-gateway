@@ -1,0 +1,51 @@
+name: Weekly Health Check
+
+on:
+  schedule:
+    - cron: '0 14 * * 0'  # Sunday 9AM EST (14 UTC)
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: Check CLIProxyAPI Health
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 30s
+          script: |
+            echo "=== CLIProxyAPI Health ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep cliproxy
+            echo ""
+            
+            GATEWAY_KEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated 2>/dev/null | cut -d= -f2)
+            MODELS=$(curl -sf http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer $GATEWAY_KEY" 2>/dev/null | jq '.data | length' 2>/dev/null || echo "0")
+            echo "Models available: $MODELS"
+            
+            echo ""
+            echo "=== Docker Stats ==="
+            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" | grep cliproxy
+            
+            echo ""
+            echo "=== Disk ==="
+            df -h / | tail -1
+            
+            echo ""
+            echo "=== Uptime ==="
+            uptime
+
+      - name: Notify Telegram
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🏔️ CLIProxyAPI Weekly Health: ${{ job.status }}
+            Server: 87.99.129.125
