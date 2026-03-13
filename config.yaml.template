@@ -1,0 +1,78 @@
+# CLIProxyAPI — BidDeed.AI Gateway Config
+# Hetzner VPS | Hardened for production
+# NO CLAUDE TOKENS — Gemini + DeepSeek + Future only
+
+host: "127.0.0.1"
+port: 8317
+
+tls:
+  enable: false
+
+remote-management:
+  allow-remote: false
+  secret-key: "MGMT_SECRET_PLACEHOLDER"
+  disable-control-panel: true
+
+auth-dir: "/data/auth"
+
+api-keys:
+  - "GATEWAY_KEY_PLACEHOLDER"
+
+debug: false
+logging-to-file: true
+logs-max-total-size-mb: 100
+error-logs-max-files: 5
+
+pprof:
+  enable: false
+
+commercial-mode: true
+request-retry: 3
+max-retry-credentials: 3
+max-retry-interval: 15
+
+routing:
+  strategy: "round-robin"
+
+quota-exceeded:
+  switch-project: true
+  switch-preview-model: true
+
+# TIER 1: GEMINI (FREE) — Round-robin across keys
+gemini-api-key:
+  - api-key: "GEMINI_KEY_1_PLACEHOLDER"
+  - api-key: "GEMINI_KEY_2_PLACEHOLDER"
+  - api-key: "GEMINI_KEY_3_PLACEHOLDER"
+
+# TIER 2: DEEPSEEK V3.2 (ULTRA_CHEAP)
+openai-compatibility:
+  - name: "deepseek"
+    base-url: "https://api.deepseek.com/v1"
+    api-key-entries:
+      - api-key: "DEEPSEEK_KEY_PLACEHOLDER"
+    models:
+      - name: "deepseek-chat"
+        alias: "deepseek-v3"
+      - name: "deepseek-reasoner"
+        alias: "deepseek-r1"
+
+# TIER 3: FUTURE (uncomment when ready)
+# openai-compatibility (continued):
+#  - name: "openrouter"
+#    base-url: "https://openrouter.ai/api/v1"
+#    api-key-entries:
+#      - api-key: "OPENROUTER_KEY"
+#    models:
+#      - name: "qwen/qwen3-coder-plus"
+#        alias: "qwen3-coder"
+
+payload:
+  default:
+    - models:
+        - name: "gemini-2.5-pro"
+      params:
+        "generationConfig.thinkingConfig.thinkingBudget": 16384
+    - models:
+        - name: "gemini-2.5-flash"
+      params:
+        "generationConfig.thinkingConfig.thinkingBudget": 8192
