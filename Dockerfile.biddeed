@@ -1,0 +1,31 @@
+# CLIProxyAPI — BidDeed.AI Hardened Build
+FROM golang:1.26-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o ./CLIProxyAPI ./cmd/server/
+
+FROM alpine:3.22.0
+RUN apk add --no-cache tzdata ca-certificates curl \
+    && addgroup -g 1000 -S biddeed \
+    && adduser -u 1000 -S biddeed -G biddeed \
+    && mkdir -p /data/auth /data/logs \
+    && chown -R biddeed:biddeed /data
+
+COPY --from=builder /app/CLIProxyAPI /usr/local/bin/CLIProxyAPI
+
+ENV TZ=America/New_York
+RUN cp /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo "${TZ}" > /etc/timezone
+
+USER biddeed
+WORKDIR /data
+EXPOSE 8317
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8317/v1/models || exit 1
+
+ENTRYPOINT ["CLIProxyAPI"]
