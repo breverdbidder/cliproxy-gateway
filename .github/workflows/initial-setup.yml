@@ -9,49 +9,51 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Fix Container Bind Address
+      - name: Inject Fresh Gemini Key
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           password: ${{ secrets.HETZNER_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: GEMINI_KEY
           timeout: 60s
           command_timeout: 3m
           script: |
             cd /opt/cliproxy-gateway
+            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
             
-            # FIX: App must bind 0.0.0.0 INSIDE container
-            # Docker port mapping 127.0.0.1:8317:8317 restricts HOST side
-            sed -i 's/^host: "127.0.0.1"/host: ""/' config.yaml
+            # Replace all 3 stale keys with the fresh one
+            # Using sed with the env var passed securely via envs
+            sed -i "/gemini-api-key:/,/^[^ ]/{s|api-key: \"AIza[^\"]*\"|api-key: \"${GEMINI_KEY}\"|g}" config.yaml
             
-            echo "=== Config host line ==="
-            grep "^host:" config.yaml
+            # Verify key count (not values)
+            echo "=== Gemini key entries ==="
+            grep -c "api-key:" config.yaml
             
             docker compose restart
-            sleep 8
-            
-            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            sleep 10
             
             echo "=== Models ==="
             curl -s http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" | jq '.data[] | .id' 2>/dev/null || echo "FAIL"
+              -H "Authorization: Bearer $GATEWAY_KEY" | jq '[.data[] | .id] | length' 2>/dev/null
             
-            echo ""
-            echo "=== Gemini Flash ==="
+            echo "=== Gemini Test ==="
             curl -s http://127.0.0.1:8317/v1/chat/completions \
               -H "Authorization: Bearer $GATEWAY_KEY" \
               -H "Content-Type: application/json" \
-              -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Reply exactly: BidDeed gateway live"}],"max_tokens":10}' | jq -r '.choices[0].message.content // .error // "no response"' 2>/dev/null || echo "FAIL"
+              -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Reply exactly: gateway operational"}],"max_tokens":10}' | \
+              jq -r '.choices[0].message.content // .error.message // "no response"' 2>/dev/null
             
-            echo ""
-            echo "=== DeepSeek ==="
+            echo "=== DeepSeek Test ==="
             curl -s http://127.0.0.1:8317/v1/chat/completions \
               -H "Authorization: Bearer $GATEWAY_KEY" \
               -H "Content-Type: application/json" \
-              -d '{"model":"deepseek-v3","messages":[{"role":"user","content":"Reply exactly: DeepSeek connected"}],"max_tokens":10}' | jq -r '.choices[0].message.content // .error // "no response"' 2>/dev/null || echo "FAIL"
+              -d '{"model":"deepseek-v3","messages":[{"role":"user","content":"Reply exactly: operational"}],"max_tokens":5}' | \
+              jq -r '.choices[0].message.content // .error.message // "no response"' 2>/dev/null
             
-            echo ""
-            echo "=== Container ==="
+            echo "=== Status ==="
             docker ps --format "{{.Names}} {{.Status}}"
             echo "=== DONE ==="
