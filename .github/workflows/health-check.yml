@@ -16,25 +16,33 @@ jobs:
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
+          password: ${{ secrets.HETZNER_ROOT_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 120s
           command_timeout: 5m
           script: |
-            echo "=== Server Info ==="
-            hostname && uptime
+            echo "=== Server ==="
+            hostname && uptime && echo ""
+            
+            echo "=== Cloud-init ==="
+            cloud-init status 2>/dev/null || echo "N/A"
             echo ""
-            echo "=== Cloud-init status ==="
-            cloud-init status 2>/dev/null || echo "no cloud-init"
-            echo ""
+            
             echo "=== Docker ==="
-            docker ps 2>/dev/null || echo "Docker not ready yet"
+            docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Not ready"
             echo ""
+            
             echo "=== CLIProxyAPI ==="
             if [ -f /opt/cliproxy-gateway/.env.generated ]; then
-              GATEWAY_KEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated | cut -d= -f2)
+              cat /opt/cliproxy-gateway/.env.generated
+              GKEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated | cut -d= -f2)
               curl -sf http://127.0.0.1:8317/v1/models \
-                -H "Authorization: Bearer $GATEWAY_KEY" 2>/dev/null | jq '.' || echo "Service not responding yet"
+                -H "Authorization: Bearer $GKEY" 2>/dev/null | jq '.data | length' || echo "Not responding"
             else
-              echo "Setup not complete — cloud-init still running"
-              cat /var/log/cliproxy-setup.log 2>/dev/null | tail -30 || echo "No setup log yet"
+              echo "Setup incomplete"
+              tail -30 /var/log/cliproxy-setup.log 2>/dev/null || echo "No log"
             fi
+            
+            echo ""
+            echo "=== Disk ==="
+            df -h / | tail -1
