@@ -15,13 +15,14 @@ jobs:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           password: ${{ secrets.HETZNER_PASSWORD }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 120s
           command_timeout: 15m
           script: |
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
             
-            echo "=== [1/7] System update ==="
+            echo "=== [1/7] System ==="
             apt-get update -qq
             apt-get install -y -qq curl wget git jq ufw fail2ban ca-certificates
             
@@ -42,43 +43,31 @@ jobs:
             fi
             docker --version
             
-            echo "=== [5/7] Clone repos ==="
-            mkdir -p /opt
-            cd /opt
-            [ -d cliproxy-gateway ] && rm -rf cliproxy-gateway
+            echo "=== [5/7] Clone ==="
+            mkdir -p /opt && cd /opt
+            rm -rf cliproxy-gateway
             git clone https://github.com/breverdbidder/cliproxy-gateway.git
             cd cliproxy-gateway
             git clone https://github.com/router-for-me/CLIProxyAPI.git
             
-            echo "=== [6/7] Generate secrets ==="
+            echo "=== [6/7] Config ==="
             GATEWAY_KEY="biddeed-gw-$(openssl rand -hex 24)"
             MGMT_SECRET=$(openssl rand -hex 32)
             cp config.yaml.template config.yaml
             sed -i "s/GATEWAY_KEY_PLACEHOLDER/$GATEWAY_KEY/" config.yaml
             sed -i "s/MGMT_SECRET_PLACEHOLDER/$MGMT_SECRET/" config.yaml
-            
-            cat > .env.generated << ENVEOF
-            CLIPROXY_API_KEY=$GATEWAY_KEY
-            MGMT_SECRET=$MGMT_SECRET
-            SETUP_DATE=$(date -Iseconds)
-            ENVEOF
+            echo "CLIPROXY_API_KEY=$GATEWAY_KEY" > .env.generated
+            echo "MGMT_SECRET=$MGMT_SECRET" >> .env.generated
             chmod 600 .env.generated
+            echo "KEY: $GATEWAY_KEY"
             
-            echo "GATEWAY_KEY=$GATEWAY_KEY"
-            
-            echo "=== [7/7] Build + Start ==="
-            docker compose build 2>&1 | tail -20
+            echo "=== [7/7] Build ==="
+            docker compose build 2>&1 | tail -30
             docker compose up -d
-            
             sleep 15
-            echo "=== VERIFICATION ==="
-            docker ps
-            echo ""
-            curl -sf http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" 2>/dev/null | jq '.data | length' \
-              && echo "CLIProxyAPI LIVE" \
-              || echo "Not responding yet — check: docker logs biddeed-cliproxy"
             
-            echo ""
+            echo "=== STATUS ==="
+            docker ps
+            curl -sf http://127.0.0.1:8317/v1/models -H "Authorization: Bearer $GATEWAY_KEY" | jq '.' || echo "Starting..."
             cat .env.generated
-            echo "=== SETUP COMPLETE ==="
+            echo "=== DONE ==="
