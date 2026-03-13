@@ -1,0 +1,48 @@
+# CLIProxyAPI — BidDeed.AI Gateway
+# Deploy: docker compose up -d
+# Update: git pull && docker compose build && docker compose up -d
+
+services:
+  cliproxy:
+    build:
+      context: ./CLIProxyAPI
+      dockerfile: /opt/cliproxy-gateway/Dockerfile.biddeed
+    container_name: biddeed-cliproxy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8317:8317"
+    volumes:
+      - ./config.yaml:/data/config.yaml:ro
+      - auth-data:/data/auth
+      - log-data:/data/logs
+    environment:
+      - TZ=America/New_York
+    command: ["CLIProxyAPI", "-c", "/data/config.yaml"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8317/v1/models"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  auth-data:
+  log-data:
