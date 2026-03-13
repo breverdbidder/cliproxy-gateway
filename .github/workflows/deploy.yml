@@ -1,0 +1,64 @@
+name: Deploy CLIProxyAPI to Hetzner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config.yaml.template'
+      - 'docker-compose.yml'
+      - 'Dockerfile.biddeed'
+      - 'scripts/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Deploy to Hetzner via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script_stop: true
+          timeout: 300s
+          script: |
+            set -euo pipefail
+            echo "=== Deploying CLIProxyAPI ==="
+            
+            cd /opt/cliproxy-gateway
+            
+            # Pull latest config
+            git pull origin main
+            
+            # Pull latest CLIProxyAPI
+            cd CLIProxyAPI && git pull origin main && cd ..
+            
+            # Rebuild and restart
+            docker compose build --no-cache 2>&1 | tail -10
+            docker compose up -d
+            
+            # Health check
+            sleep 10
+            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated 2>/dev/null | cut -d= -f2 || echo "")
+            if [ -n "$GATEWAY_KEY" ]; then
+              curl -sf http://127.0.0.1:8317/v1/models \
+                -H "Authorization: Bearer $GATEWAY_KEY" | jq '.data | length'
+              echo "✅ Deploy successful"
+            else
+              docker ps | grep biddeed-cliproxy
+              echo "⚠️ Check manually — no .env.generated found"
+            fi
+
+      - name: Notify Telegram
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🏔️ CLIProxyAPI Deploy: ${{ job.status }}
+            Commit: ${{ github.sha }}
+            By: ${{ github.actor }}
