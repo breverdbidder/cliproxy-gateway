@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Debug and Fix Config
+      - name: Fix Docker Compose
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -21,82 +21,64 @@ jobs:
           script: |
             cd /opt/cliproxy-gateway
             
-            echo "=== Current config (api-keys section) ==="
-            grep -A5 "api-keys:" config.yaml
-            echo ""
-            echo "=== Gateway key ==="
-            cat .env.generated
-            echo ""
-            echo "=== Check Gemini keys ==="
-            grep "api-key:" config.yaml | head -5
-            echo ""
+            cat > docker-compose.yml << 'DCEOF'
+            services:
+              cliproxy:
+                build:
+                  context: ./CLIProxyAPI
+                  dockerfile: /opt/cliproxy-gateway/Dockerfile.biddeed
+                container_name: biddeed-cliproxy
+                restart: unless-stopped
+                ports:
+                  - "127.0.0.1:8317:8317"
+                volumes:
+                  - ./config.yaml:/data/config.yaml:ro
+                  - auth-data:/data/auth
+                  - log-data:/data/logs
+                environment:
+                  - TZ=America/New_York
+                command: ["CLIProxyAPI", "-c", "/data/config.yaml"]
+                tmpfs:
+                  - /tmp:size=64M
+                security_opt:
+                  - no-new-privileges:true
+                deploy:
+                  resources:
+                    limits:
+                      cpus: "1.0"
+                      memory: 512M
+                logging:
+                  driver: "json-file"
+                  options:
+                    max-size: "10m"
+                    max-file: "3"
             
-            echo "=== Fix: regenerate config with proper escaping ==="
-            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            volumes:
+              auth-data:
+              log-data:
+            DCEOF
             
-            cat > config.yaml << 'CONFIGEOF'
-            host: "127.0.0.1"
-            port: 8317
-            tls:
-              enable: false
-            remote-management:
-              allow-remote: false
-              disable-control-panel: true
-            auth-dir: "/data/auth"
-            debug: false
-            logging-to-file: true
-            logs-max-total-size-mb: 100
-            commercial-mode: true
-            request-retry: 3
-            max-retry-credentials: 3
-            routing:
-              strategy: "round-robin"
-            quota-exceeded:
-              switch-project: true
-              switch-preview-model: true
-            CONFIGEOF
+            sed -i 's/^            //' docker-compose.yml
             
-            # Strip leading whitespace from heredoc
-            sed -i 's/^            //' config.yaml
-            
-            # Now append dynamic parts
-            cat >> config.yaml << DYNEOF
-            
-            api-keys:
-              - "$GATEWAY_KEY"
-            
-            gemini-api-key:
-              - api-key: "AIzaSyBzT2DYRXulP_1QzkZJIs7yo-B0uO06nNc"
-              - api-key: "AIzaSyAWtbRMSsnqozLQymTpQRAV7Fr53VSwT34"
-              - api-key: "AIzaSyBYqqQUsSa57Q1H-60RYcU8mxAg7mdoijk"
-            
-            openai-compatibility:
-              - name: "deepseek"
-                base-url: "https://api.deepseek.com/v1"
-                api-key-entries:
-                  - api-key: "sk-ef423e40aa164b67ac581d6f6ab51475"
-                models:
-                  - name: "deepseek-chat"
-                    alias: "deepseek-v3"
-                  - name: "deepseek-reasoner"
-                    alias: "deepseek-r1"
-            DYNEOF
-            
-            sed -i 's/^            //' config.yaml
-            
-            echo "=== New config ==="
-            cat config.yaml
-            
-            echo ""
-            echo "=== Restart ==="
             docker compose down
             docker compose up -d
-            sleep 10
+            sleep 8
             
+            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            
+            echo "=== Container ==="
+            docker ps
             echo ""
-            echo "=== Test ==="
-            docker logs biddeed-cliproxy --tail 5
+            echo "=== Logs ==="
+            docker logs biddeed-cliproxy 2>&1 | tail -10
+            echo ""
+            echo "=== Models Test ==="
             curl -s http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" 2>&1 | head -20
+              -H "Authorization: Bearer $GATEWAY_KEY" 2>&1 | head -30
             echo ""
+            echo "=== Chat Test ==="
+            curl -s http://127.0.0.1:8317/v1/chat/completions \
+              -H "Authorization: Bearer $GATEWAY_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"say ok"}],"max_tokens":5}' 2>&1 | head -10
             echo "=== DONE ==="
