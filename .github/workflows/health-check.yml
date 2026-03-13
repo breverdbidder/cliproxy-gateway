@@ -9,7 +9,6 @@ jobs:
   health:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Check CLIProxyAPI Health
         uses: appleboy/ssh-action@v1.2.0
@@ -21,28 +20,15 @@ jobs:
           timeout: 120s
           command_timeout: 5m
           script: |
-            echo "=== Server ==="
-            hostname && uptime && echo ""
-            
-            echo "=== Cloud-init ==="
-            cloud-init status 2>/dev/null || echo "N/A"
-            echo ""
-            
-            echo "=== Docker ==="
-            docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Not ready"
-            echo ""
-            
-            echo "=== CLIProxyAPI ==="
+            echo "=== Server ===" && hostname && uptime
+            echo "=== Cloud-init ===" && cloud-init status 2>/dev/null || true
+            echo "=== Docker ===" && docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Not ready"
+            echo "=== Gateway ==="
             if [ -f /opt/cliproxy-gateway/.env.generated ]; then
-              cat /opt/cliproxy-gateway/.env.generated
               GKEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated | cut -d= -f2)
-              curl -sf http://127.0.0.1:8317/v1/models \
-                -H "Authorization: Bearer $GKEY" 2>/dev/null | jq '.data | length' || echo "Not responding"
+              echo "Key: ${GKEY:0:20}..."
+              curl -sf http://127.0.0.1:8317/v1/models -H "Authorization: Bearer $GKEY" | jq '.data | length' 2>/dev/null || echo "Not responding yet"
             else
-              echo "Setup incomplete"
-              tail -30 /var/log/cliproxy-setup.log 2>/dev/null || echo "No log"
+              echo "Setup incomplete — log:" && tail -20 /var/log/cliproxy-setup.log 2>/dev/null || echo "No log"
             fi
-            
-            echo ""
-            echo "=== Disk ==="
-            df -h / | tail -1
+            echo "=== Disk ===" && df -h / | tail -1
