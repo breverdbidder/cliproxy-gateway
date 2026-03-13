@@ -6,68 +6,36 @@ on:
 jobs:
   setup:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    
+    timeout-minutes: 5
+
     steps:
-      - name: Run Setup on Hetzner
+      - name: Inject API Keys
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           password: ${{ secrets.HETZNER_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 120s
-          command_timeout: 15m
+          timeout: 60s
+          command_timeout: 3m
           script: |
-            set -euo pipefail
-            export DEBIAN_FRONTEND=noninteractive
-            
-            echo "=== [1/7] System ==="
-            apt-get update -qq
-            apt-get install -y -qq curl wget git jq ufw fail2ban ca-certificates
-            
-            echo "=== [2/7] Timezone ==="
-            timedatectl set-timezone America/New_York
-            
-            echo "=== [3/7] Firewall ==="
-            ufw default deny incoming
-            ufw default allow outgoing
-            ufw allow 22/tcp
-            ufw --force enable
-            
-            echo "=== [4/7] Docker ==="
-            if ! command -v docker &>/dev/null; then
-              curl -fsSL https://get.docker.com | sh
-              systemctl enable docker
-              systemctl start docker
-            fi
-            docker --version
-            
-            echo "=== [5/7] Clone ==="
-            mkdir -p /opt && cd /opt
-            rm -rf cliproxy-gateway
-            git clone https://github.com/breverdbidder/cliproxy-gateway.git
-            cd cliproxy-gateway
-            git clone https://github.com/router-for-me/CLIProxyAPI.git
-            
-            echo "=== [6/7] Config ==="
-            GATEWAY_KEY="biddeed-gw-$(openssl rand -hex 24)"
-            MGMT_SECRET=$(openssl rand -hex 32)
-            cp config.yaml.template config.yaml
-            sed -i "s/GATEWAY_KEY_PLACEHOLDER/$GATEWAY_KEY/" config.yaml
-            sed -i "s/MGMT_SECRET_PLACEHOLDER/$MGMT_SECRET/" config.yaml
-            echo "CLIPROXY_API_KEY=$GATEWAY_KEY" > .env.generated
-            echo "MGMT_SECRET=$MGMT_SECRET" >> .env.generated
-            chmod 600 .env.generated
-            echo "KEY: $GATEWAY_KEY"
-            
-            echo "=== [7/7] Build ==="
-            docker compose build 2>&1 | tail -30
-            docker compose up -d
-            sleep 15
-            
-            echo "=== STATUS ==="
+            cd /opt/cliproxy-gateway
+
+            echo "=== Injecting real API keys ==="
+            sed -i 's/GEMINI_KEY_1_PLACEHOLDER/AIzaSyBzT2DYRXulP_1QzkZJIs7yo-B0uO06nNc/' config.yaml
+            sed -i 's/GEMINI_KEY_2_PLACEHOLDER/AIzaSyAWtbRMSsnqozLQymTpQRAV7Fr53VSwT34/' config.yaml
+            sed -i 's/GEMINI_KEY_3_PLACEHOLDER/AIzaSyBYqqQUsSa57Q1H-60RYcU8mxAg7mdoijk/' config.yaml
+            sed -i 's/DEEPSEEK_KEY_PLACEHOLDER/sk-ef423e40aa164b67ac581d6f6ab51475/' config.yaml
+
+            echo "=== Restarting ==="
+            docker compose restart
+            sleep 10
+
+            echo "=== Verify ==="
+            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            curl -sf http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer $GATEWAY_KEY" | jq '.data[] | .id' 2>/dev/null || echo "Checking..."
+
             docker ps
-            curl -sf http://127.0.0.1:8317/v1/models -H "Authorization: Bearer $GATEWAY_KEY" | jq '.' || echo "Starting..."
-            cat .env.generated
+            docker logs biddeed-cliproxy --tail 15
             echo "=== DONE ==="
