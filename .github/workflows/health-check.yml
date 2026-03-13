@@ -9,26 +9,38 @@ jobs:
   health:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - name: Check CLIProxyAPI Health
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
-          password: ${{ secrets.HETZNER_ROOT_PASSWORD }}
+          password: ${{ secrets.HETZNER_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 120s
           command_timeout: 5m
           script: |
-            echo "=== Server ===" && hostname && uptime
-            echo "=== Cloud-init ===" && cloud-init status 2>/dev/null || true
-            echo "=== Docker ===" && docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Not ready"
+            echo "=== Server ==="
+            hostname && uptime
+            echo ""
+            echo "=== Cloud-init ==="
+            cloud-init status 2>/dev/null || echo "no cloud-init"
+            echo ""
+            echo "=== Docker ==="
+            docker ps 2>/dev/null || echo "Docker not ready"
+            echo ""
             echo "=== Gateway ==="
             if [ -f /opt/cliproxy-gateway/.env.generated ]; then
-              GKEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated | cut -d= -f2)
-              echo "Key: ${GKEY:0:20}..."
-              curl -sf http://127.0.0.1:8317/v1/models -H "Authorization: Bearer $GKEY" | jq '.data | length' 2>/dev/null || echo "Not responding yet"
+              cat /opt/cliproxy-gateway/.env.generated
+              GATEWAY_KEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated | cut -d= -f2)
+              echo ""
+              curl -sf http://127.0.0.1:8317/v1/models \
+                -H "Authorization: Bearer $GATEWAY_KEY" 2>/dev/null | jq '.data | length' || echo "Service not up yet"
             else
-              echo "Setup incomplete — log:" && tail -20 /var/log/cliproxy-setup.log 2>/dev/null || echo "No log"
+              echo "Setup incomplete. Log tail:"
+              tail -40 /var/log/cliproxy-setup.log 2>/dev/null || echo "No log yet"
             fi
-            echo "=== Disk ===" && df -h / | tail -1
+            echo ""
+            echo "=== Disk ==="
+            df -h / | tail -1
