@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Fix Docker Compose
+      - name: Deep Debug
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -21,64 +21,31 @@ jobs:
           script: |
             cd /opt/cliproxy-gateway
             
-            cat > docker-compose.yml << 'DCEOF'
-            services:
-              cliproxy:
-                build:
-                  context: ./CLIProxyAPI
-                  dockerfile: /opt/cliproxy-gateway/Dockerfile.biddeed
-                container_name: biddeed-cliproxy
-                restart: unless-stopped
-                ports:
-                  - "127.0.0.1:8317:8317"
-                volumes:
-                  - ./config.yaml:/data/config.yaml:ro
-                  - auth-data:/data/auth
-                  - log-data:/data/logs
-                environment:
-                  - TZ=America/New_York
-                command: ["CLIProxyAPI", "-c", "/data/config.yaml"]
-                tmpfs:
-                  - /tmp:size=64M
-                security_opt:
-                  - no-new-privileges:true
-                deploy:
-                  resources:
-                    limits:
-                      cpus: "1.0"
-                      memory: 512M
-                logging:
-                  driver: "json-file"
-                  options:
-                    max-size: "10m"
-                    max-file: "3"
+            echo "=== 1. No auth ==="
+            curl -s -w "\nHTTP_CODE:%{http_code}\n" http://127.0.0.1:8317/ 2>&1
             
-            volumes:
-              auth-data:
-              log-data:
-            DCEOF
+            echo ""
+            echo "=== 2. Wrong key ==="
+            curl -s -w "\nHTTP_CODE:%{http_code}\n" http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer wrongkey" 2>&1
             
-            sed -i 's/^            //' docker-compose.yml
-            
-            docker compose down
-            docker compose up -d
-            sleep 8
-            
+            echo ""
+            echo "=== 3. Right key ==="
             GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            echo "Using key: $GATEWAY_KEY"
+            curl -s -w "\nHTTP_CODE:%{http_code}\n" http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer $GATEWAY_KEY" 2>&1
             
-            echo "=== Container ==="
-            docker ps
             echo ""
-            echo "=== Logs ==="
-            docker logs biddeed-cliproxy 2>&1 | tail -10
+            echo "=== 4. Raw TCP test ==="
+            echo -e "GET /v1/models HTTP/1.1\r\nHost: 127.0.0.1:8317\r\nAuthorization: Bearer $GATEWAY_KEY\r\n\r\n" | nc -w5 127.0.0.1 8317 | head -10
+            
             echo ""
-            echo "=== Models Test ==="
-            curl -s http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" 2>&1 | head -30
+            echo "=== 5. Config api-keys ==="
+            cat config.yaml | grep -A2 "api-keys"
+            
             echo ""
-            echo "=== Chat Test ==="
-            curl -s http://127.0.0.1:8317/v1/chat/completions \
-              -H "Authorization: Bearer $GATEWAY_KEY" \
-              -H "Content-Type: application/json" \
-              -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"say ok"}],"max_tokens":5}' 2>&1 | head -10
+            echo "=== 6. stderr logs ==="
+            docker logs biddeed-cliproxy 2>&1 | tail -20
+            
             echo "=== DONE ==="
