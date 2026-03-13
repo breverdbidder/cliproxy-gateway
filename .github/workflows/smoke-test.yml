@@ -1,0 +1,73 @@
+name: Smoke Test & Wire Consumers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Smoke Test Gateway
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          password: ${{ secrets.HETZNER_PASSWORD }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            cd /opt/cliproxy-gateway
+            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            
+            echo "=== 1. Models List ==="
+            curl -sf http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer $GATEWAY_KEY" | jq '.data[] | .id'
+            
+            echo ""
+            echo "=== 2. Gemini Flash Test ==="
+            GEMINI_RESULT=$(curl -sf http://127.0.0.1:8317/v1/chat/completions \
+              -H "Authorization: Bearer $GATEWAY_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "model": "gemini-2.5-flash",
+                "messages": [{"role":"user","content":"Reply with exactly: BidDeed gateway operational"}],
+                "max_tokens": 20
+              }' 2>&1)
+            echo "$GEMINI_RESULT" | jq -r '.choices[0].message.content // .error.message // "no response"' 2>/dev/null || echo "$GEMINI_RESULT" | head -5
+            
+            echo ""
+            echo "=== 3. DeepSeek Test ==="
+            DS_RESULT=$(curl -sf http://127.0.0.1:8317/v1/chat/completions \
+              -H "Authorization: Bearer $GATEWAY_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "model": "deepseek-v3",
+                "messages": [{"role":"user","content":"Reply with exactly: DeepSeek connected"}],
+                "max_tokens": 20
+              }' 2>&1)
+            echo "$DS_RESULT" | jq -r '.choices[0].message.content // .error.message // "no response"' 2>/dev/null || echo "$DS_RESULT" | head -5
+            
+            echo ""
+            echo "=== 4. Container Health ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            
+            echo ""
+            echo "=== SMOKE TEST COMPLETE ==="
+
+      - name: Notify Telegram
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🏔️ CLIProxyAPI Smoke Test: ${{ job.status }}
+            
+            Gateway: 127.0.0.1:8317
+            Providers: 3x Gemini + 1x DeepSeek
+            Consumers: cli-anything + ZoneWise + LangGraph
+            
+            Repo: github.com/breverdbidder/cliproxy-gateway
