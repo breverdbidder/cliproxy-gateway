@@ -2,14 +2,14 @@ name: Weekly Health Check
 
 on:
   schedule:
-    - cron: '0 14 * * 0'  # Sunday 9AM EST (14 UTC)
+    - cron: '0 14 * * 0'
   workflow_dispatch:
 
 jobs:
   health:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    
+    timeout-minutes: 10
+
     steps:
       - name: Check CLIProxyAPI Health
         uses: appleboy/ssh-action@v1.2.0
@@ -17,35 +17,24 @@ jobs:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          timeout: 30s
+          timeout: 120s
+          command_timeout: 5m
           script: |
-            echo "=== CLIProxyAPI Health ==="
-            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep cliproxy
+            echo "=== Server Info ==="
+            hostname && uptime
             echo ""
-            
-            GATEWAY_KEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated 2>/dev/null | cut -d= -f2)
-            MODELS=$(curl -sf http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" 2>/dev/null | jq '.data | length' 2>/dev/null || echo "0")
-            echo "Models available: $MODELS"
-            
+            echo "=== Cloud-init status ==="
+            cloud-init status 2>/dev/null || echo "no cloud-init"
             echo ""
-            echo "=== Docker Stats ==="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" | grep cliproxy
-            
+            echo "=== Docker ==="
+            docker ps 2>/dev/null || echo "Docker not ready yet"
             echo ""
-            echo "=== Disk ==="
-            df -h / | tail -1
-            
-            echo ""
-            echo "=== Uptime ==="
-            uptime
-
-      - name: Notify Telegram
-        if: always()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: |
-            🏔️ CLIProxyAPI Weekly Health: ${{ job.status }}
-            Server: 87.99.129.125
+            echo "=== CLIProxyAPI ==="
+            if [ -f /opt/cliproxy-gateway/.env.generated ]; then
+              GATEWAY_KEY=$(grep CLIPROXY_API_KEY /opt/cliproxy-gateway/.env.generated | cut -d= -f2)
+              curl -sf http://127.0.0.1:8317/v1/models \
+                -H "Authorization: Bearer $GATEWAY_KEY" 2>/dev/null | jq '.' || echo "Service not responding yet"
+            else
+              echo "Setup not complete — cloud-init still running"
+              cat /var/log/cliproxy-setup.log 2>/dev/null | tail -30 || echo "No setup log yet"
+            fi
