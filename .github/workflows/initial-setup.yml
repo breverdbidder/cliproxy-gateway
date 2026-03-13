@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Inject API Keys
+      - name: Debug and Fix Config
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -20,22 +20,83 @@ jobs:
           command_timeout: 3m
           script: |
             cd /opt/cliproxy-gateway
-
-            echo "=== Injecting real API keys ==="
-            sed -i 's/GEMINI_KEY_1_PLACEHOLDER/AIzaSyBzT2DYRXulP_1QzkZJIs7yo-B0uO06nNc/' config.yaml
-            sed -i 's/GEMINI_KEY_2_PLACEHOLDER/AIzaSyAWtbRMSsnqozLQymTpQRAV7Fr53VSwT34/' config.yaml
-            sed -i 's/GEMINI_KEY_3_PLACEHOLDER/AIzaSyBYqqQUsSa57Q1H-60RYcU8mxAg7mdoijk/' config.yaml
-            sed -i 's/DEEPSEEK_KEY_PLACEHOLDER/sk-ef423e40aa164b67ac581d6f6ab51475/' config.yaml
-
-            echo "=== Restarting ==="
-            docker compose restart
-            sleep 10
-
-            echo "=== Verify ==="
+            
+            echo "=== Current config (api-keys section) ==="
+            grep -A5 "api-keys:" config.yaml
+            echo ""
+            echo "=== Gateway key ==="
+            cat .env.generated
+            echo ""
+            echo "=== Check Gemini keys ==="
+            grep "api-key:" config.yaml | head -5
+            echo ""
+            
+            echo "=== Fix: regenerate config with proper escaping ==="
             GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
-            curl -sf http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" | jq '.data[] | .id' 2>/dev/null || echo "Checking..."
-
-            docker ps
-            docker logs biddeed-cliproxy --tail 15
+            
+            cat > config.yaml << 'CONFIGEOF'
+            host: "127.0.0.1"
+            port: 8317
+            tls:
+              enable: false
+            remote-management:
+              allow-remote: false
+              disable-control-panel: true
+            auth-dir: "/data/auth"
+            debug: false
+            logging-to-file: true
+            logs-max-total-size-mb: 100
+            commercial-mode: true
+            request-retry: 3
+            max-retry-credentials: 3
+            routing:
+              strategy: "round-robin"
+            quota-exceeded:
+              switch-project: true
+              switch-preview-model: true
+            CONFIGEOF
+            
+            # Strip leading whitespace from heredoc
+            sed -i 's/^            //' config.yaml
+            
+            # Now append dynamic parts
+            cat >> config.yaml << DYNEOF
+            
+            api-keys:
+              - "$GATEWAY_KEY"
+            
+            gemini-api-key:
+              - api-key: "AIzaSyBzT2DYRXulP_1QzkZJIs7yo-B0uO06nNc"
+              - api-key: "AIzaSyAWtbRMSsnqozLQymTpQRAV7Fr53VSwT34"
+              - api-key: "AIzaSyBYqqQUsSa57Q1H-60RYcU8mxAg7mdoijk"
+            
+            openai-compatibility:
+              - name: "deepseek"
+                base-url: "https://api.deepseek.com/v1"
+                api-key-entries:
+                  - api-key: "sk-ef423e40aa164b67ac581d6f6ab51475"
+                models:
+                  - name: "deepseek-chat"
+                    alias: "deepseek-v3"
+                  - name: "deepseek-reasoner"
+                    alias: "deepseek-r1"
+            DYNEOF
+            
+            sed -i 's/^            //' config.yaml
+            
+            echo "=== New config ==="
+            cat config.yaml
+            
+            echo ""
+            echo "=== Restart ==="
+            docker compose down
+            docker compose up -d
+            sleep 10
+            
+            echo ""
+            echo "=== Test ==="
+            docker logs biddeed-cliproxy --tail 5
+            curl -s http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer $GATEWAY_KEY" 2>&1 | head -20
+            echo ""
             echo "=== DONE ==="
