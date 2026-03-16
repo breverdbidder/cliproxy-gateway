@@ -1,15 +1,12 @@
-# Claude Code Session Hygiene Setup for Hetzner
 name: Setup Claude Code on Hetzner
-
 on:
   workflow_dispatch:
-
 jobs:
   setup:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Install Claude Code + Plugins on Hetzner
+      - name: Install Claude Code and Plugins
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -21,81 +18,37 @@ jobs:
           script: |
             set -e
             export DEBIAN_FRONTEND=noninteractive
-
             echo "=== [1/5] Node.js 20 ==="
             if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]; then
               curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
               apt-get install -y nodejs
             fi
             node -v && npm -v
-
             echo "=== [2/5] Claude Code CLI ==="
             npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -5
-            claude --version || echo "claude installed"
-
             echo "=== [3/5] CC Status Line ==="
-            # Install cc-status-line globally
             npm install -g cc-status-line@latest 2>&1 | tail -5
-
-            # Pre-write status line config (non-interactive)
             mkdir -p /root/.claude
-            cat > /root/.claude/cc-status-line.json << 'CCEOF'
-            {
-              "line1": "model | context% | session_cost | session_clock",
-              "line2": "git_branch | git_worktree"
-            }
-CCEOF
-            echo "CC Status Line config written"
-
-            echo "=== [4/5] Context7 Plugin ==="
-            # Pre-configure Context7 MCP server in Claude settings
-            mkdir -p /root/.claude
-            
-            # Read existing settings or create new
-            if [ -f /root/.claude/settings.json ]; then
-              cp /root/.claude/settings.json /root/.claude/settings.json.bak
-            fi
-
-            # Write plugin registry for Context7
+            echo '{"line1":"model | context% | session_cost | session_clock","line2":"git_branch | git_worktree"}' > /root/.claude/cc-status-line.json
+            echo "=== [4/5] Context7 Plugin Config ==="
             python3 -c "
 import json, os
-
-settings_path = '/root/.claude/settings.json'
-settings = {}
-if os.path.exists(settings_path):
+p = '/root/.claude/settings.json'
+s = {}
+if os.path.exists(p):
     try:
-        with open(settings_path) as f:
-            settings = json.load(f)
-    except:
-        pass
-
-# Ensure plugins list exists
-if 'plugins' not in settings:
-    settings['plugins'] = []
-
-# Add context7 if not present
-c7_exists = any('context7' in str(p).lower() for p in settings.get('plugins', []))
-if not c7_exists:
-    settings['plugins'].append({
-        'name': 'context7',
-        'source': 'marketplace'
-    })
-    print('Context7 added to plugins')
-else:
-    print('Context7 already configured')
-
-with open(settings_path, 'w') as f:
-    json.dump(settings, f, indent=2)
-print(f'Settings written: {json.dumps(settings, indent=2)}')
+        with open(p) as f: s = json.load(f)
+    except: pass
+if 'plugins' not in s: s['plugins'] = []
+if not any('context7' in str(x).lower() for x in s.get('plugins',[])):
+    s['plugins'].append({'name':'context7','source':'marketplace'})
+with open(p,'w') as f: json.dump(s,f,indent=2)
+print(json.dumps(s,indent=2))
 "
-
             echo "=== [5/5] Verify ==="
             echo "Node: $(node -v)"
             echo "NPM: $(npm -v)"
-            which claude && echo "Claude Code: installed" || echo "Claude Code: PATH issue"
-            cat /root/.claude/settings.json 2>/dev/null || echo "No settings.json yet"
-            cat /root/.claude/cc-status-line.json 2>/dev/null || echo "No cc-status-line config yet"
-            echo ""
+            which claude && claude --version || echo "Claude Code installed (run claude to verify)"
+            ls -la /root/.claude/
+            cat /root/.claude/settings.json
             echo "=== DONE ==="
-            echo "Next Claude Code session on this server will have Context7 + CC Status Line ready."
-            echo "Remember: kill at 50% context, never /compact"
