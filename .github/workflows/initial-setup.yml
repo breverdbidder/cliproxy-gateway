@@ -7,7 +7,6 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
       - name: Inject Fresh Gemini Key
         uses: appleboy/ssh-action@v1.2.0
@@ -24,36 +23,77 @@ jobs:
           script: |
             cd /opt/cliproxy-gateway
             GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
-            
-            # Replace all 3 stale keys with the fresh one
-            # Using sed with the env var passed securely via envs
             sed -i "/gemini-api-key:/,/^[^ ]/{s|api-key: \"AIza[^\"]*\"|api-key: \"${GEMINI_KEY}\"|g}" config.yaml
-            
-            # Verify key count (not values)
             echo "=== Gemini key entries ==="
             grep -c "api-key:" config.yaml
-            
             docker compose restart
             sleep 10
-            
             echo "=== Models ==="
             curl -s http://127.0.0.1:8317/v1/models \
               -H "Authorization: Bearer $GATEWAY_KEY" | jq '[.data[] | .id] | length' 2>/dev/null
-            
             echo "=== Gemini Test ==="
             curl -s http://127.0.0.1:8317/v1/chat/completions \
               -H "Authorization: Bearer $GATEWAY_KEY" \
               -H "Content-Type: application/json" \
               -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Reply exactly: gateway operational"}],"max_tokens":10}' | \
               jq -r '.choices[0].message.content // .error.message // "no response"' 2>/dev/null
-            
             echo "=== DeepSeek Test ==="
             curl -s http://127.0.0.1:8317/v1/chat/completions \
               -H "Authorization: Bearer $GATEWAY_KEY" \
               -H "Content-Type: application/json" \
               -d '{"model":"deepseek-v3","messages":[{"role":"user","content":"Reply exactly: operational"}],"max_tokens":5}' | \
               jq -r '.choices[0].message.content // .error.message // "no response"' 2>/dev/null
-            
             echo "=== Status ==="
             docker ps --format "{{.Names}} {{.Status}}"
             echo "=== DONE ==="
+
+  claude-code-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install Claude Code + Hygiene Plugins on Hetzner
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          password: ${{ secrets.HETZNER_PASSWORD }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 120s
+          command_timeout: 10m
+          script: |
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            echo "=== [1/5] Node.js 20 ==="
+            if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              apt-get install -y nodejs
+            fi
+            node -v && npm -v
+            echo "=== [2/5] Claude Code CLI ==="
+            npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -5
+            echo "=== [3/5] CC Status Line ==="
+            npm install -g cc-status-line@latest 2>&1 | tail -5
+            mkdir -p /root/.claude
+            echo '{"line1":"model | context% | session_cost | session_clock","line2":"git_branch | git_worktree"}' > /root/.claude/cc-status-line.json
+            echo "=== [4/5] Context7 Plugin Config ==="
+            python3 -c "
+import json, os
+p = '/root/.claude/settings.json'
+s = {}
+if os.path.exists(p):
+    try:
+        with open(p) as f: s = json.load(f)
+    except: pass
+if 'plugins' not in s: s['plugins'] = []
+if not any('context7' in str(x).lower() for x in s.get('plugins',[])):
+    s['plugins'].append({'name':'context7','source':'marketplace'})
+with open(p,'w') as f: json.dump(s,f,indent=2)
+print(json.dumps(s,indent=2))
+"
+            echo "=== [5/5] Verify ==="
+            echo "Node: $(node -v)"
+            echo "NPM: $(npm -v)"
+            which claude && claude --version || echo "Claude Code binary installed"
+            ls -la /root/.claude/
+            cat /root/.claude/settings.json
+            echo "=== CLAUDE CODE SETUP COMPLETE ==="
