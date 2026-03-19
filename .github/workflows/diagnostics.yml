@@ -1,0 +1,49 @@
+name: Deep Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Full Diagnostics
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          password: ${{ secrets.HETZNER_ROOT_PASSWORD }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script: |
+            cd /opt/cliproxy-gateway
+            
+            echo "=== 1. Config file permissions ==="
+            ls -la config.yaml
+            stat config.yaml
+            
+            echo ""
+            echo "=== 2. Config content (keys redacted) ==="
+            cat config.yaml | sed 's/\(api-key: "\)[^"]*"/\1REDACTED"/g' | sed 's/\(secret-key: "\)[^"]*"/\1REDACTED"/g'
+            
+            echo ""
+            echo "=== 3. Docker logs (last 50) ==="
+            docker logs biddeed-cliproxy --tail 50 2>&1
+            
+            echo ""
+            echo "=== 4. Container inspect ==="
+            docker inspect biddeed-cliproxy --format '{{.State.Status}} | {{.State.Health.Status}} | RestartCount: {{.RestartCount}} | ExitCode: {{.State.ExitCode}}'
+            
+            echo ""
+            echo "=== 5. Container user ==="
+            docker exec biddeed-cliproxy whoami 2>/dev/null || echo "Can't exec (container might be restarting)"
+            docker exec biddeed-cliproxy cat /data/config.yaml 2>/dev/null | head -5 || echo "Can't read config from inside container"
+            
+            echo ""
+            echo "=== 6. Port check ==="
+            ss -tlnp | grep 8317
+            
+            echo ""
+            echo "=== DONE ==="
