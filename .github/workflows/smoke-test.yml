@@ -1,4 +1,4 @@
-name: Smoke Test & Wire Consumers
+name: Smoke Test Gateway
 
 on:
   workflow_dispatch:
@@ -9,34 +9,54 @@ jobs:
     timeout-minutes: 10
     
     steps:
-      - name: Smoke Test Gateway
+      - name: Test Two-Tier Router
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
-          password: ${{ secrets.HETZNER_PASSWORD }}
+          password: ${{ secrets.HETZNER_ROOT_PASSWORD }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 60s
           command_timeout: 5m
           script: |
             cd /opt/cliproxy-gateway
-            GATEWAY_KEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
-            echo "KEY: ${GATEWAY_KEY:0:20}..."
+            GKEY=$(grep CLIPROXY_API_KEY .env.generated | cut -d= -f2)
+            echo "KEY: ${GKEY:0:20}..."
             
-            echo "=== Docker Logs ==="
+            echo ""
+            echo "=== Container Status ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(NAMES|biddeed)"
+            
+            echo ""
+            echo "=== Docker Logs (last 20) ==="
             docker logs biddeed-cliproxy --tail 20 2>&1
             
             echo ""
-            echo "=== Models ==="
-            curl -v http://127.0.0.1:8317/v1/models \
-              -H "Authorization: Bearer $GATEWAY_KEY" 2>&1 | head -30
+            echo "=== Available Models ==="
+            curl -sf http://127.0.0.1:8317/v1/models \
+              -H "Authorization: Bearer $GKEY" | jq -r '.data[].id' 2>/dev/null || echo "GATEWAY DOWN"
             
             echo ""
-            echo "=== Gemini Test ==="
-            curl -v http://127.0.0.1:8317/v1/chat/completions \
-              -H "Authorization: Bearer $GATEWAY_KEY" \
+            echo "=== TIER 1: DeepSeek Test ==="
+            RESP=$(curl -sf --max-time 30 http://127.0.0.1:8317/v1/chat/completions \
+              -H "Authorization: Bearer $GKEY" \
               -H "Content-Type: application/json" \
-              -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"say hi"}],"max_tokens":10}' 2>&1 | tail -20
+              -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"respond with exactly: TIER1_OK"}],"max_tokens":10}' 2>&1)
+            echo "$RESP" | jq -r '.choices[0].message.content' 2>/dev/null || echo "TIER 1 FAILED: $RESP"
+            
+            echo ""
+            echo "=== TIER 2: Claude Test ==="
+            RESP=$(curl -sf --max-time 30 http://127.0.0.1:8317/v1/chat/completions \
+              -H "Authorization: Bearer $GKEY" \
+              -H "Content-Type: application/json" \
+              -d '{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"respond with exactly: TIER2_OK"}],"max_tokens":10}' 2>&1)
+            echo "$RESP" | jq -r '.choices[0].message.content' 2>/dev/null || echo "TIER 2 FAILED: $RESP"
+            
+            echo ""
+            echo "=== Config Check ==="
+            grep -c "deepseek" /opt/cliproxy-gateway/config.yaml && echo "DeepSeek configured"
+            grep -c "claude-api-key" /opt/cliproxy-gateway/config.yaml && echo "Claude configured"
+            ls -la /opt/cliproxy-gateway/config.yaml
             
             echo ""
             echo "=== DONE ==="
@@ -48,5 +68,6 @@ jobs:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
-            🏔️ CLIProxyAPI Smoke Test: ${{ job.status }}
+            🏔️ Two-Tier Router Smoke Test: ${{ job.status }}
+            T1: DeepSeek | T2: Claude
             Gateway: 127.0.0.1:8317
