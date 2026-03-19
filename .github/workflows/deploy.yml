@@ -100,7 +100,7 @@ jobs:
               sed -i '/^claude-api-key:/,/alias: "claude-haiku"$/s/^/#/' config.yaml
             fi
             
-            chmod 600 config.yaml
+            chmod 644 config.yaml
             echo "Config rebuilt from template"
             
             echo "=== [6/7] Build & Start ==="
@@ -123,3 +123,4 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+
