@@ -1,6 +1,7 @@
 # CLIProxyAPI — BidDeed.AI Gateway Config
-# Hetzner VPS | Hardened for production
-# NO CLAUDE TOKENS — Gemini + DeepSeek + Future only
+# TWO-TIER ROUTER: DeepSeek (primary) + Claude (escalation)
+# Gemini FREE tier ELIMINATED — no more key expiry
+# Updated: 2026-03-19
 
 host: "127.0.0.1"
 port: 8317
@@ -38,13 +39,11 @@ quota-exceeded:
   switch-project: true
   switch-preview-model: true
 
-# TIER 1: GEMINI (FREE) — Round-robin across keys
-gemini-api-key:
-  - api-key: "GEMINI_KEY_1_PLACEHOLDER"
-  - api-key: "GEMINI_KEY_2_PLACEHOLDER"
-  - api-key: "GEMINI_KEY_3_PLACEHOLDER"
-
-# TIER 2: DEEPSEEK V3.2 (ULTRA_CHEAP)
+# ============================================
+# TIER 1: DEEPSEEK (PRIMARY — all pipeline traffic)
+# $0.28/1M input, $1.12/1M output
+# Handles: 80-90% of all work
+# ============================================
 openai-compatibility:
   - name: "deepseek"
     base-url: "https://api.deepseek.com/v1"
@@ -56,23 +55,32 @@ openai-compatibility:
       - name: "deepseek-reasoner"
         alias: "deepseek-r1"
 
-# TIER 3: FUTURE (uncomment when ready)
-# openai-compatibility (continued):
-#  - name: "openrouter"
-#    base-url: "https://openrouter.ai/api/v1"
-#    api-key-entries:
-#      - api-key: "OPENROUTER_KEY"
-#    models:
-#      - name: "qwen/qwen3-coder-plus"
-#        alias: "qwen3-coder"
+# ============================================
+# TIER 2: CLAUDE API (ESCALATION — complex reasoning)
+# $3/$15 per 1M (Sonnet), $5/$25 (Opus)
+# Handles: lien priority, legal edge cases, max bid
+# ============================================
+claude-api-key:
+  - api-key: "ANTHROPIC_KEY_PLACEHOLDER"
+    models:
+      - name: "claude-sonnet-4-20250514"
+        alias: "claude-sonnet"
+      - name: "claude-haiku-4-5-20251001"
+        alias: "claude-haiku"
+
+# ============================================
+# GEMINI: REMOVED (2026-03-19)
+# All 3 keys = same expired key. Unreliable.
+# DeepSeek at $0.28/1M replaces FREE tier.
+# ============================================
 
 payload:
   default:
     - models:
-        - name: "gemini-2.5-pro"
+        - name: "deepseek-chat"
       params:
-        "generationConfig.thinkingConfig.thinkingBudget": 16384
+        temperature: 0.3
     - models:
-        - name: "gemini-2.5-flash"
+        - name: "deepseek-reasoner"
       params:
-        "generationConfig.thinkingConfig.thinkingBudget": 8192
+        temperature: 0.1
