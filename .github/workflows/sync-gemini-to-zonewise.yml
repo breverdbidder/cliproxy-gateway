@@ -1,0 +1,73 @@
+name: "Sync Gemini Key to ZoneWise"
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test and sync Gemini key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_PAT: ${{ secrets.CLIPROXY_API_KEY }}
+        run: |
+          echo "Testing cliproxy GEMINI_API_KEY..."
+          echo "Prefix: ${GEMINI_API_KEY:0:10}"
+          echo "Length: ${#GEMINI_API_KEY}"
+          
+          RESULT=$(curl -s -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"contents":[{"parts":[{"text":"Say hello"}]}],"generationConfig":{"maxOutputTokens":20}}')
+          
+          if echo "$RESULT" | grep -q "candidates"; then
+            echo "Key works! Syncing to zonewise-web..."
+            
+            # Get zonewise-web repo public key for secret encryption
+            PUB_KEY_RESP=$(curl -s -H "Authorization: token ${{ secrets.CLIPROXY_API_KEY }}" \
+              "https://api.github.com/repos/breverdbidder/zonewise-web/actions/secrets/public-key")
+            
+            # Unfortunately can't encrypt with libsodium from plain bash
+            # Use Python instead
+            pip install pynacl -q
+            
+            python3 << PYEOF
+import json, base64, subprocess
+from nacl import encoding, public
+
+key_resp = json.loads('''$PUB_KEY_RESP''')
+pub_key = public.PublicKey(key_resp['key'].encode(), encoding.Base64Encoder())
+sealed = public.SealedBox(pub_key).encrypt("$GEMINI_API_KEY".encode())
+encrypted = base64.b64encode(sealed).decode()
+
+# Update the secret
+import urllib.request
+req = urllib.request.Request(
+    f"https://api.github.com/repos/breverdbidder/zonewise-web/actions/secrets/GEMINI_API_KEY",
+    data=json.dumps({"encrypted_value": encrypted, "key_id": key_resp['key_id']}).encode(),
+    headers={"Authorization": "token ${{ secrets.CLIPROXY_API_KEY }}", "Content-Type": "application/json"},
+    method="PUT"
+)
+try:
+    resp = urllib.request.urlopen(req)
+    print(f"Updated GEMINI_API_KEY in zonewise-web: HTTP {resp.status}")
+except Exception as e:
+    print(f"Failed: {e}")
+
+# Also update GOOGLE_API_KEY
+req2 = urllib.request.Request(
+    f"https://api.github.com/repos/breverdbidder/zonewise-web/actions/secrets/GOOGLE_API_KEY",
+    data=json.dumps({"encrypted_value": encrypted, "key_id": key_resp['key_id']}).encode(),
+    headers={"Authorization": "token ${{ secrets.CLIPROXY_API_KEY }}", "Content-Type": "application/json"},
+    method="PUT"
+)
+try:
+    resp2 = urllib.request.urlopen(req2)
+    print(f"Updated GOOGLE_API_KEY in zonewise-web: HTTP {resp2.status}")
+except Exception as e:
+    print(f"Failed: {e}")
+PYEOF
+          else
+            echo "FAILED — cliproxy key also broken"
+            echo "Result: $(echo $RESULT | head -c 300)"
+          fi
