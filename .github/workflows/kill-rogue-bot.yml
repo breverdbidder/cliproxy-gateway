@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Kill any telegram bot process on Hetzner
+      - name: Stop agentremote-executor on Hetzner
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -18,30 +18,23 @@ jobs:
           timeout: 30s
           command_timeout: 60s
           script: |
-            echo "=== Finding telegram/bot processes ==="
-            ps aux | grep -iE 'telegram|bot_v[0-9]|agentremote|deepseek|smart.?router' | grep -v grep || echo "No matches"
+            set +e
+            echo "=== Stopping agentremote-executor.service ==="
+            systemctl stop agentremote-executor.service 2>/dev/null
+            systemctl disable agentremote-executor.service 2>/dev/null
+            echo "Service stopped and disabled"
+
+            echo ""
+            echo "=== Killing any remaining bot processes ==="
+            pkill -f 'telegram.*bot' 2>/dev/null || true
+            pkill -f 'bot_v[0-9]' 2>/dev/null || true
+            pkill -f 'executor.py' 2>/dev/null || true
+            echo "Kill commands sent"
+
+            echo ""
+            echo "=== Verify clean ==="
+            ps aux | grep -iE 'telegram|bot_v|agentremote|executor' | grep -v grep || echo "All clear!"
+            systemctl is-active agentremote-executor.service 2>/dev/null || echo "Service is inactive"
             
             echo ""
-            echo "=== Docker containers ==="
-            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null | grep -iE 'telegram|bot|agent' || echo "No matching containers"
-            
-            echo ""
-            echo "=== systemd services ==="
-            systemctl list-units --type=service --state=running 2>/dev/null | grep -iE 'telegram|bot|agent|claude' || echo "No matching services"
-            
-            echo ""
-            echo "=== Killing Python processes with telegram/bot ==="
-            pkill -f 'telegram.*bot' 2>/dev/null && echo "Killed telegram bot processes" || echo "No telegram bot processes found"
-            pkill -f 'bot_v[0-9]' 2>/dev/null && echo "Killed bot_v* processes" || echo "No bot_v* processes found"
-            
-            echo ""
-            echo "=== Disabling any telegram bot systemd services ==="
-            for svc in $(systemctl list-units --type=service --state=running --plain --no-legend | awk '{print $1}' | grep -iE 'telegram|bot|agent'); do
-              echo "Stopping + disabling $svc"
-              systemctl stop "$svc" 2>/dev/null
-              systemctl disable "$svc" 2>/dev/null
-            done
-            
-            echo ""
-            echo "=== Remaining processes ==="
-            ps aux | grep -iE 'telegram|bot_v|agent' | grep -v grep || echo "All clear!"
+            echo "DONE — rogue bot eliminated"
