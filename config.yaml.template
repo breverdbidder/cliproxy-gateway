@@ -1,7 +1,7 @@
 # CLIProxyAPI — BidDeed.AI Gateway Config
-# TWO-TIER ROUTER: DeepSeek (primary) + Claude (escalation)
-# Gemini FREE tier ELIMINATED — no more key expiry
-# Updated: 2026-03-19
+# THREE-TIER ROUTER: Gemini (free) → DeepSeek (cheap) → Claude (quality)
+# Gemini FREE tier RESTORED with paid key (Mar 25 2026)
+# Updated: 2026-03-25
 
 host: "127.0.0.1"
 port: 8317
@@ -40,9 +40,23 @@ quota-exceeded:
   switch-preview-model: true
 
 # ============================================
-# TIER 1: DEEPSEEK (PRIMARY — all pipeline traffic)
+# TIER 0: GEMINI (FREE — bulk pipeline traffic)
+# Paid key, generous free tier
+# Priority: route here FIRST to minimize cost
+# Restored: 2026-03-25
+# ============================================
+google-gemini:
+  - api-key: "GEMINI_KEY_PLACEHOLDER"
+    models:
+      - name: "gemini-2.0-flash"
+        alias: "gemini-flash"
+      - name: "gemini-2.5-flash-preview-04-17"
+        alias: "gemini-flash-preview"
+
+# ============================================
+# TIER 1: DEEPSEEK (CHEAP — bulk parsing fallback)
 # $0.28/1M input, $1.12/1M output
-# Handles: 80-90% of all work
+# Handles: overflow from Gemini, structured parsing
 # ============================================
 openai-compatibility:
   - name: "deepseek"
@@ -69,13 +83,16 @@ claude-api-key:
         alias: "claude-haiku"
 
 # ============================================
-# GEMINI: REMOVED (2026-03-19)
-# All 3 keys = same expired key. Unreliable.
-# DeepSeek at $0.28/1M replaces FREE tier.
+# SMART ROUTER PRIORITY (Mar 25 2026):
+# Gemini Free → DeepSeek Cheap → Claude Quality
 # ============================================
 
 payload:
   default:
+    - models:
+        - name: "gemini-2.0-flash"
+      params:
+        temperature: 0.3
     - models:
         - name: "deepseek-chat"
       params:

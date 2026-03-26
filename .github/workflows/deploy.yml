@@ -24,7 +24,7 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           timeout: 120s
           command_timeout: 15m
-          envs: ANTHROPIC_API_KEY,DEEPSEEK_API_KEY
+          envs: ANTHROPIC_API_KEY,DEEPSEEK_API_KEY,GEMINI_API_KEY
           script: |
             set -e
             export DEBIAN_FRONTEND=noninteractive
@@ -90,6 +90,16 @@ jobs:
               echo "⚠️ No DEEPSEEK_API_KEY secret — using placeholder"
             fi
             
+            # Inject Gemini key
+            if [ -n "$GEMINI_API_KEY" ]; then
+              sed -i "s/GEMINI_KEY_PLACEHOLDER/$GEMINI_API_KEY/" config.yaml
+              echo "✅ Gemini key injected"
+            else
+              echo "⚠️ No GEMINI_API_KEY secret — Gemini FREE tier disabled"
+              # Comment out gemini section if no key
+              sed -i '/^google-gemini:/,/alias: "gemini-flash-preview"$/s/^/#/' config.yaml
+            fi
+            
             # Inject Anthropic key
             if [ -n "$ANTHROPIC_API_KEY" ]; then
               sed -i "s/ANTHROPIC_KEY_PLACEHOLDER/$ANTHROPIC_API_KEY/" config.yaml
@@ -123,4 +133,5 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
