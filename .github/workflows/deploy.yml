@@ -50,7 +50,7 @@ jobs:
             if [ ! -d /opt/cliproxy-gateway ]; then
               cd /opt && git clone https://github.com/breverdbidder/cliproxy-gateway.git
             else
-              cd /opt/cliproxy-gateway && git pull origin main
+              cd /opt/cliproxy-gateway && git checkout -- . && git pull origin main
             fi
             
             if [ ! -d /opt/cliproxy-gateway/CLIProxyAPI ]; then
