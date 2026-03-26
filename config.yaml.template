@@ -45,7 +45,7 @@ quota-exceeded:
 # Priority: route here FIRST to minimize cost
 # Restored: 2026-03-25
 # ============================================
-google-gemini:
+gemini-api-key:
   - api-key: "GEMINI_KEY_PLACEHOLDER"
     models:
       - name: "gemini-2.0-flash"

@@ -97,7 +97,7 @@ jobs:
             else
               echo "⚠️ No GEMINI_API_KEY secret — Gemini FREE tier disabled"
               # Comment out gemini section if no key
-              sed -i '/^google-gemini:/,/alias: "gemini-flash-preview"$/s/^/#/' config.yaml
+              sed -i '/^gemini-api-key:/,/alias: "gemini-flash-preview"$/s/^/#/' config.yaml
             fi
             
             # Inject Anthropic key
