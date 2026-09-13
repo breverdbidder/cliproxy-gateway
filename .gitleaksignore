@@ -1,0 +1,8 @@
+# Gitleaks baseline 2026-09-13 - pre-existing findings triaged as dead/placeholder by trufflehog verified sweep.
+# Remove an entry only when the underlying file/history is cleaned. New secrets still fail the gate.
+5eaedb5554d924bf1deac884dc3c8eb0617a8bdc:.github/workflows/initial-setup.yml:curl-auth-header:29
+b2c69e22933b95ef60b84a4fcf41d3071ef34cc0:.github/workflows/initial-setup.yml:gcp-api-key:69
+b2c69e22933b95ef60b84a4fcf41d3071ef34cc0:.github/workflows/initial-setup.yml:gcp-api-key:70
+b2c69e22933b95ef60b84a4fcf41d3071ef34cc0:.github/workflows/initial-setup.yml:gcp-api-key:71
+b2c69e22933b95ef60b84a4fcf41d3071ef34cc0:.github/workflows/initial-setup.yml:generic-api-key:77
+bc203b33048ec0b5c86480f2f11338af920a3bda:TODO.md:generic-api-key:30
